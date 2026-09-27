@@ -4,9 +4,9 @@
 
 This is an ESP-IDF firmware project for an ESP32-based chicken-camera power
 timer. The intended device will control a camera around sunrise and sunset.
-The application is currently a scaffold: `main/main.c` contains an empty
-`app_main()`, so do not describe planned Wi-Fi, time, web, storage, or power
-control behaviour as implemented.
+The firmware includes Wi-Fi provisioning, NVS-backed credentials, NTP time,
+mDNS, LED status behavior, and a small web interface. Sunrise/sunset scheduling
+and camera power-control behavior remain planned work.
 
 The checked-in configuration targets `esp32` (ESP32-32E N4 on the
 ESP32_MOS_X2_V1.1 board) and was last built with ESP-IDF v6.0. The serial
@@ -18,7 +18,10 @@ monitor baud rate is 115200.
   `esp-chicken-clock`.
 - `main/` -- application component. Register new source files and component
   dependencies in `main/CMakeLists.txt`.
-- `main/main.c` -- firmware entry point (`app_main`).
+- `main/main.cpp` -- firmware startup and main loop.
+- `main/wifi.cpp`, `main/time_service.cpp`, `main/led.cpp`, and
+  `main/web_server.cpp` -- focused runtime modules; their public interfaces are
+  in `main/include/`.
 - `sdkconfig` -- current ESP-IDF configuration for the ESP32 target.
 - `README.md` -- product intent and roadmap.
 - `README_LIVING_DOC.md` -- open documentation questions and proposed README
