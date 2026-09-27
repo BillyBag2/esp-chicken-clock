@@ -11,6 +11,9 @@ CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
+# Keep a primary NTP service and two fallback services.
+CONFIG_LWIP_SNTP_MAX_SERVERS=3
+
 # Keep flashing and monitor output aligned with the default UART console.
 CONFIG_ESPTOOLPY_MONITOR_BAUD=115200
 CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200

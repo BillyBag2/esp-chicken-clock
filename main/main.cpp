@@ -2,12 +2,15 @@
 
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
+#include <ctime>
 
 #include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_http_server.h"
 #include "esp_netif.h"
+#include "esp_netif_sntp.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -35,6 +38,9 @@ constexpr char kWifiSsidNvsKey[] = "ssid";
 constexpr char kWifiPasswordNvsKey[] = "password";
 constexpr size_t kMaximumWifiNetworks = 20;
 constexpr size_t kMaximumWifiFormSize = 512;
+constexpr char kPrimaryNtpServer[] = "time.cloudflare.com";
+constexpr char kFirstFallbackNtpServer[] = "0.pool.ntp.org";
+constexpr char kSecondFallbackNtpServer[] = "1.pool.ntp.org";
 
 enum class connection_state_t {
     kConnecting,
@@ -43,24 +49,36 @@ enum class connection_state_t {
 };
 
 volatile connection_state_t s_connection_state = connection_state_t::kAccessPoint;
+volatile bool s_ntp_started = false;
 
 struct wifi_credentials_t {
     char ssid[33] = {};
     char password[65] = {};
 };
 
-const char *connection_state_name()
+void start_ntp()
 {
-    switch (s_connection_state) {
-    case connection_state_t::kConnecting:
-        return "Connecting to Wi-Fi";
-    case connection_state_t::kConnected:
-        return "Connected to Wi-Fi";
-    case connection_state_t::kAccessPoint:
-        return "Setup access point";
+    if (s_ntp_started) {
+        return;
     }
 
-    return "Unknown";
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(3,
+        ESP_SNTP_SERVER_LIST(kPrimaryNtpServer, kFirstFallbackNtpServer, kSecondFallbackNtpServer));
+    ESP_ERROR_CHECK(esp_netif_sntp_init(&config));
+    s_ntp_started = true;
+}
+
+const char *format_utc_time(char *buffer, size_t buffer_size)
+{
+    const time_t current_time = std::time(nullptr);
+    if (current_time < 1'700'000'000) {
+        return "Waiting for NTP synchronization";
+    }
+
+    tm utc_time = {};
+    gmtime_r(&current_time, &utc_time);
+    std::strftime(buffer, buffer_size, "%Y-%m-%dT%H:%M:%SZ", &utc_time);
+    return buffer;
 }
 
 void send_html_escaped(httpd_req_t *request, const char *value)
@@ -86,21 +104,47 @@ void send_html_escaped(httpd_req_t *request, const char *value)
     }
 }
 
+const char *connection_state_name()
+{
+    switch (s_connection_state) {
+    case connection_state_t::kConnecting:
+        return "Connecting to Wi-Fi";
+    case connection_state_t::kConnected:
+        return "Connected to Wi-Fi";
+    case connection_state_t::kAccessPoint:
+        return "Setup access point";
+    }
+
+    return "Unknown";
+}
+
 esp_err_t root_get_handler(httpd_req_t *request)
 {
+    char utc_time[32] = {};
+    const char *utc_time_text = format_utc_time(utc_time, sizeof(utc_time));
     static constexpr char kPage[] =
         "<!doctype html>\n"
         "<html lang=\"en\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         "<link rel=\"icon\" href=\"/favicon.ico\">"
-        "<title>Chicken Clock</title></head><body>"
-        "<h1>Chicken Clock</h1><p>Status: ";
+        "<title>Chicken Clock</title></head><body><h1>Chicken Clock</h1>"
+        "<p>Status: ";
 
     httpd_resp_set_type(request, "text/html");
     httpd_resp_send_chunk(request, kPage, HTTPD_RESP_USE_STRLEN);
     httpd_resp_send_chunk(request, connection_state_name(), HTTPD_RESP_USE_STRLEN);
     httpd_resp_send_chunk(request,
-        "</p><p><a href=\"/wifi\">Set Wi-Fi</a></p></body></html>\n", HTTPD_RESP_USE_STRLEN);
+        "</p><p id=\"time-line\">--:--</p><script>const utc='", HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send_chunk(request, utc_time_text, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send_chunk(request,
+        "';const target=document.getElementById('time-line');"
+        "const zone=new Intl.DateTimeFormat(undefined,{timeZoneName:'short'}).formatToParts(new Date())"
+        ".find(part=>part.type==='timeZoneName')?.value||'local';"
+        "if(utc.endsWith('Z')){const local=new Date(utc).toLocaleTimeString([],"
+        "{hour:'2-digit',minute:'2-digit'});target.textContent=local+' ('+zone+') ['+"
+        "utc.replace('T',' ').replace('Z',' UTC')+']';}else{target.textContent='--:-- ('+zone+"
+        "') [Waiting for NTP synchronization]';}</script><p><a href=\"/wifi\">Set Wi-Fi</a>"
+        "</p></body></html>\n", HTTPD_RESP_USE_STRLEN);
     return httpd_resp_send_chunk(request, nullptr, 0);
 }
 
@@ -390,6 +434,7 @@ void wifi_event_handler(void *, esp_event_base_t event_base, int32_t event_id, v
 
     if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         s_connection_state = connection_state_t::kConnected;
+        start_ntp();
     }
 }
 
