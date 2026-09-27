@@ -1,24 +1,34 @@
 # esp-chicken-clock
 
-An esp based solid state MOSFET "switch" for power to a security camera. The camera operates when the chickens are going to sleep and waking up. The battery life is limited and the camera is powered off apart from these two periods each day.
+## Introduction
 
-It uses off the shelf board ESP32_MOS_X2_V1.1. That uses a solid state "switch" to control power to the security camera.
+Chickens go to roost as the light fades and want to be let out as the sun rises. However they are not like clockwork, so a camera is used to observe them. However to solar charged batter has limited life so a ESP32_MOS_X2_V1.1 board is used to switch power to the camera on and off at the right time.
 
-The ESP switches on power a configurable number of minutes before sun rise and sun set and turn off a configurable number of minutes after rise and set.
+## Requirements
 
-So it could be 20 minutes before sun rise to 30 minutes after sun rise. Then 40 minutes before sun set to 10 minutes after.
-
-The Chickens are let out when they wake up and shut away when they roost at the end of the day. Their feed, water and health are also checked at these times. An automatically controlled door is undesirable for this reason. However the exact time is up to the Chickens, so a camera helps see them when waking or roosting so the checks are done at the correct time.
+Switch on the camera a configurable number of minutes before sun set.
 
 ## Platform
 
 A commonly available board, ESP32_MOS_X2_V1.1 has an ESP32-32E N4 and a two channel MOSFET solid state "switch".
 
-For example see this [ebay listing](https://www.ebay.co.uk/itm/116844380922?mkevt=1&mkcid=1&mkrid=710-53481-19255-0&campid=5339120189&toolid=20006&_trkparms=ispr%3D1&amdata=enc%3A1d78a6yQiQIeqTEbtbzlFGA9&customid=Cj0KCQjwj47OBhCmARIsAF5wUEGuFtYBioE1y2s-A1Lv1kkPV3mQ02b7OoKi_7jXO-JznEeG0ic16DcaAqexEALw_wcB|0AAAAAoWc2zfFqfXsZoUM5xj-FHyoyEnEG|CkAKCAjw7IjOBhBsEjAAfOqUkmNUceylByIwvy4g4DYQlOXvM-fABOtCWBHlzdvg7H338znZRpVVScXHcB8aApfF&gclid=Cj0KCQjwj47OBhCmARIsAF5wUEGuFtYBioE1y2s-A1Lv1kkPV3mQ02b7OoKi_7jXO-JznEeG0ic16DcaAqexEALw_wcB&gbraid=0AAAAAoWc2zfFqfXsZoUM5xj-FHyoyEnEG&wbraid=CkAKCAjw7IjOBhBsEjAAfOqUkmNUceylByIwvy4g4DYQlOXvM-fABOtCWBHlzdvg7H338znZRpVVScXHcB8aApfF&loc_interest_ms=&loc_physical_ms=9193146&adtype=pla&gad_source=1&gad_campaignid=23233019726&gbraid=0AAAAAoWc2zfFqfXsZoUM5xj-FHyoyEnEG).
+![ESP32_MOS_X2_V1.1](images/board.jpg)
 
-## Obtaining sun set/sun rise.
+## GPIO pin assignments
 
-Proposed method of obtaining sun rise/set knowing the location.
+GPIO16, GPIO17, (GPIO26, and GPIO27)
+
+LED: GPIO23
+
+## Obtaining sun set/sun rise
+
+Proposed approach:
+
+* The user configures the device location as latitude and longitude. (From browser?)
+* The device obtains the current date and time from NTP when connected to Wi-Fi.
+* Sunrise and sunset times are then obtained from an internet service using that location and date.
+* A good option is the free `sunrise-sunset.org` API because it accepts latitude and longitude and returns sunrise and sunset times for a given date.
+* If internet access is unavailable, the device can keep using the most recently fetched sunrise/sunset values until it is able to refresh them.
 
 ## TODO
 
@@ -32,9 +42,10 @@ Proposed method of obtaining sun rise/set knowing the location.
 * [ ] Add button to web site to obtain time/date from browser.
 * [ ] Have hard wired list of network time servers. Does not need to be user configurable.
 * [ ] When connected to existing WiFi contact network time servers for the time.
-* [ ] Add to README.txt a strategy for obtaining sun set/sun rise from internet.
+* [ ] Add to README.md a strategy for obtaining sun set/sun rise from internet.
 * [ ] Add to web site the ability to set the location (coordinates) for sun set and sun rise.
 * [ ] Store setting even if power is lost.
 * [ ] In website have ability to configure the four setting of minutes before/after rise/set.
 * [ ] Enter a low power mode when the timer can be off. Sleep for 5minutes, wake and then go to sleep again.
 * [ ] When the time is less than the prescribed number of minutes before the rise/set turn on. Turn off the prescribed number of minutes after the rise/set.
+* [ ] The timing is related to sun rise/set only. There is no requirement to show day light saving. However, browser time, network time and the timings of rise and set must be managed for this to be correct. Eliminating day light saving from the logic would be easiest, if possible.
