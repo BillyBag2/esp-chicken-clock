@@ -11,10 +11,14 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "mdns.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
 namespace {
+
+extern const uint8_t favicon_ico_start[] asm("_binary_favicon_ico_start");
+extern const uint8_t favicon_ico_end[] asm("_binary_favicon_ico_end");
 
 constexpr uint32_t kLedUpdateIntervalMs = 20;
 constexpr uint32_t kStationConnectionTimeoutMs = 10'000;
@@ -25,6 +29,7 @@ constexpr uint32_t kConnectedLedBlipMs = 100;
 
 constexpr char kAccessPointSsid[] = "ChickenClock-Setup";
 constexpr char kAccessPointPassword[] = "chickenclock";
+constexpr char kHostName[] = "chicken";
 constexpr char kWifiNvsNamespace[] = "wifi";
 constexpr char kWifiSsidNvsKey[] = "ssid";
 constexpr char kWifiPasswordNvsKey[] = "password";
@@ -87,6 +92,7 @@ esp_err_t root_get_handler(httpd_req_t *request)
         "<!doctype html>\n"
         "<html lang=\"en\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        "<link rel=\"icon\" href=\"/favicon.ico\">"
         "<title>Chicken Clock</title></head><body>"
         "<h1>Chicken Clock</h1><p>Status: ";
 
@@ -96,6 +102,13 @@ esp_err_t root_get_handler(httpd_req_t *request)
     httpd_resp_send_chunk(request,
         "</p><p><a href=\"/wifi\">Set Wi-Fi</a></p></body></html>\n", HTTPD_RESP_USE_STRLEN);
     return httpd_resp_send_chunk(request, nullptr, 0);
+}
+
+esp_err_t favicon_get_handler(httpd_req_t *request)
+{
+    httpd_resp_set_type(request, "image/x-icon");
+    return httpd_resp_send(request, reinterpret_cast<const char *>(favicon_ico_start),
+        favicon_ico_end - favicon_ico_start);
 }
 
 bool decode_url_component(char *value)
@@ -178,6 +191,7 @@ esp_err_t wifi_get_handler(httpd_req_t *request)
     httpd_resp_sendstr_chunk(request,
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        "<link rel=\"icon\" href=\"/favicon.ico\">"
         "<title>Set Wi-Fi</title></head><body><h1>Set Wi-Fi</h1>"
         "<form method=\"post\" action=\"/wifi\"><p><label>Network "
         "<select name=\"ssid\" required><option value=\"\">Choose a network</option>");
@@ -239,6 +253,7 @@ esp_err_t wifi_post_handler(httpd_req_t *request)
     httpd_resp_set_type(request, "text/html");
     return httpd_resp_sendstr(request,
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<link rel=\"icon\" href=\"/favicon.ico\">"
         "<title>Wi-Fi saved</title></head><body><h1>Wi-Fi settings saved</h1>"
         "<p>Restart the device to connect using the new settings.</p><p><a href=\"/\">Back</a></p>"
         "</body></html>");
@@ -257,6 +272,12 @@ void start_web_server()
     root_uri.user_ctx = nullptr;
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &root_uri));
 
+    httpd_uri_t favicon_uri = {};
+    favicon_uri.uri = "/favicon.ico";
+    favicon_uri.method = HTTP_GET;
+    favicon_uri.handler = favicon_get_handler;
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &favicon_uri));
+
     httpd_uri_t wifi_get_uri = {};
     wifi_get_uri.uri = "/wifi";
     wifi_get_uri.method = HTTP_GET;
@@ -268,6 +289,14 @@ void start_web_server()
     wifi_post_uri.method = HTTP_POST;
     wifi_post_uri.handler = wifi_post_handler;
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &wifi_post_uri));
+}
+
+void start_mdns()
+{
+    ESP_ERROR_CHECK(mdns_init());
+    ESP_ERROR_CHECK(mdns_hostname_set(kHostName));
+    ESP_ERROR_CHECK(mdns_instance_name_set("Chicken Clock"));
+    ESP_ERROR_CHECK(mdns_service_add(nullptr, "_http", "_tcp", 80, nullptr, 0));
 }
 
 void configure_output(gpio_num_t pin)
@@ -419,8 +448,10 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(nvs_result);
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_sta();
+    esp_netif_t *station_netif = esp_netif_create_default_wifi_sta();
     esp_netif_create_default_wifi_ap();
+    ESP_ERROR_CHECK(esp_netif_set_hostname(station_netif, kHostName));
+    start_mdns();
 
     wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&wifi_init_config));
