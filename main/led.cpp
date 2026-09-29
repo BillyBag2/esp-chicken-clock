@@ -56,3 +56,8 @@ void led_update(connection_state_t state)
     }
     ESP_ERROR_CHECK(gpio_set_level(board_pins::kLed, on ? 1 : 0));
 }
+
+void led_set_mosfet1(bool on)
+{
+    ESP_ERROR_CHECK(gpio_set_level(board_pins::kMosfet1, on ? 1 : 0));
+}

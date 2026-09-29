@@ -14,5 +14,8 @@
     "--compile-commands-dir=c:\\repos\\esp-chicken-timer\\build"
   ],
   "idf.flashType": "UART",
-  "idf.port": "COM16"
+  "idf.port": "COM16",
+  "cSpell.words": [
+    "MOSFET"
+  ]
 }

@@ -20,15 +20,18 @@ GPIO16, GPIO17, (GPIO26, and GPIO27)
 
 LED: GPIO23
 
-## Obtaining sun set/sun rise
+## Sunset schedule
 
-Proposed approach:
+The Settings page stores a map-selected latitude and longitude plus signed
+minute offsets for sunset and dusk in NVS. When station Wi-Fi and NTP time are
+available, the firmware requests that location's sunset and dusk as UTC Unix
+timestamps from `sunrise-sunset.org`. This avoids applying the browser's time
+zone or daylight-saving rules to the switching calculation.
 
-* The user configures the device location as latitude and longitude. (From browser?)
-* The device obtains the current date and time from NTP when connected to Wi-Fi.
-* Sunrise and sunset times are then obtained from an internet service using that location and date.
-* A good option is the free `sunrise-sunset.org` API because it accepts latitude and longitude and returns sunrise and sunset times for a given date.
-* If internet access is unavailable, the device can keep using the most recently fetched sunrise/sunset values until it is able to refresh them.
+MOSFET 1 is driven high from `sunset + sunset offset` until `dusk + dusk
+offset`. The shared page header shows the FET state and the next sunset/dusk
+event, rounded to the nearest minute. Browser-local time is only a display
+preference; it does not affect the switching window.
 
 ## TODO
 

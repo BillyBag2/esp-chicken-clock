@@ -21,8 +21,10 @@ This file captures questions, ambiguities, inconsistencies, and suggested improv
   - power on before sunset and off after sunset?
 - Why is sunset included for observing chickens waking up? Is the actual use case observing both coop opening and settling for the night?
 - What happens if the configured "on" windows overlap, or if the current time is already inside a window at boot?
-- What timezone source will be used for sunrise/sunset calculations?
-- Will daylight saving time be handled automatically?
+- The implemented sunset/dusk scheduler uses UTC Unix timestamps returned for
+  the saved coordinates. Browser-local time and daylight-saving rules are used
+  only when displaying the time in the browser, so they cannot shift the FET
+  switching window.
 - What should happen if time sync fails?
 - What should happen if internet is unavailable for multiple days?
 - Is location specified by latitude/longitude, address lookup, or browser geolocation?
@@ -47,7 +49,10 @@ This file captures questions, ambiguities, inconsistencies, and suggested improv
 - No hardware wiring notes.
 - No GPIO pin assignments.
 - No configuration storage approach.
-- No detailed explanation of how sunrise/sunset API responses will be validated, cached, or converted to local time.
+- The current API parsing accepts the `sunset` and `dusk` Unix timestamp values
+  for today and tomorrow. It waits ten seconds after Wi-Fi connects, retries a
+  first failed fetch after ten seconds, then retries subsequent failures after
+  five minutes; the two-day cache is RAM-only.
 - No explanation of how the device behaves before it has valid time.
 - No explanation of failure modes or fallback behavior.
 - No acceptance criteria for the TODO items.
