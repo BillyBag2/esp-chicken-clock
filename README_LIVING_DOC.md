@@ -1,114 +1,73 @@
 # README Living Doc
 
-This file captures questions, ambiguities, inconsistencies, and suggested improvements found while reviewing `README.md`.
+This document records the current implementation and the decisions still to be
+made. Keep it aligned with `README.md` as functionality changes.
 
-## Current repo state
+## Current implementation
 
-- The repository currently appears to be an early ESP-IDF skeleton project.
-- `main/main.c` contains an empty `app_main()` with no implemented timer, Wi-Fi, time sync, GPIO control, web UI, storage, or low-power behavior yet.
-- The project name should be kept aligned as `esp-chicken-clock` across the repository, README, and build files.
+- The firmware is an ESP-IDF C++ application for an ESP32-32E N4 on the
+  ESP32_MOS_X2_V1.1 board.
+- GPIO23 drives the status LED; GPIO16 and GPIO17 are the two MOSFET outputs;
+  GPIO0 is the boot button. MOSFET outputs are set low during startup.
+- Wi-Fi credentials are stored in NVS. The device tries station mode for ten
+  seconds, then starts the password-protected `ChickenClock-Setup` AP if it
+  cannot connect or no credentials exist.
+- While in AP mode, a client joining/leaving or using the web interface counts
+  as activity. After one minute without activity, saved station credentials are
+  retried.
+- The device hostname and mDNS name are `chicken`, so `chicken.local` is
+  advertised on compatible local networks.
+- NTP uses a fixed list of public servers. The web interface displays local
+  browser time and UTC time, but scheduling uses UTC internally.
+- The Settings page stores map-selected latitude/longitude and signed sunset
+  and dusk offsets in NVS. It uses Leaflet with OpenStreetMap tiles for the
+  map, and displays a seven-day Sunrise-Sunset.org table.
+- After Wi-Fi is connected and NTP is valid, the firmware waits ten seconds,
+  fetches today and tomorrow from Sunrise-Sunset.org, and keeps both event
+  pairs in RAM. The first failed fetch retries after ten seconds; later failed
+  fetches retry after five minutes.
+- MOSFET 1 is driven high from `sunset + sunset offset` until
+  `dusk + dusk offset`. The shared web header shows the FET state and an
+  on/off countdown rounded to the nearest minute.
+- Home also provides persistent `TIMER`, forced `ON`, and forced `OFF` modes.
+  In timer mode the header includes the next transition and its browser-local
+  scheduled time.
 
-## Questions to answer in the README
+## Open decisions and gaps
 
-- What exactly is being switched on and off?
-- Is the ESP board powering a camera directly, driving a relay, controlling a MOSFET, or sending a control signal to another device?
-- What voltage/current limits are expected for the load?
-- Is the hardware already wired and tested, or is the README meant to describe a future design?
-- What does `ESP32_MOS_X2_V1.1` refer to exactly? A product link or short hardware description would help.
-- Is `ESP32-32E N4` the module on the board, an alternative platform, or a required chip variant?
-- Should the device turn on before both sunrise and sunset every day, or is the intended behavior:
-  - power on before sunrise and off after sunrise, and
-  - power on before sunset and off after sunset?
-- Why is sunset included for observing chickens waking up? Is the actual use case observing both coop opening and settling for the night?
-- What happens if the configured "on" windows overlap, or if the current time is already inside a window at boot?
-- The implemented sunset/dusk scheduler uses UTC Unix timestamps returned for
-  the saved coordinates. Browser-local time and daylight-saving rules are used
-  only when displaying the time in the browser, so they cannot shift the FET
-  switching window.
-- What should happen if time sync fails?
-- What should happen if internet is unavailable for multiple days?
-- Is location specified by latitude/longitude, address lookup, or browser geolocation?
-- Is there a security expectation for the AP mode and web configuration page?
-- Should the project depend on an external sunrise/sunset API long term, or should sunrise/sunset eventually be calculated locally from latitude, longitude, and date?
+- Confirm with measurement that a high GPIO level is the intended active level
+  for MOSFET 1 on the actual board and camera wiring. The board documentation
+  does not provide a complete schematic in this repository.
+- Document camera voltage, current, polarity, fuse/protection requirements,
+  and safe behavior on reset or brownout.
+- Decide whether the fixed AP password and unencrypted HTTP configuration page
+  are acceptable for the deployment environment.
+- Captive-portal behavior for phones and computers is not implemented.
+- A sunrise window and the other rise/set offset settings are not implemented.
+- Low-power sleep is not implemented.
+- The two-day sun-event cache is RAM-only. Define the desired behavior after a
+  power loss, a prolonged network outage, or an NTP failure; an RTC and/or
+  NVS-backed event cache may be appropriate.
+- Define whether scheduling must continue through a Wi-Fi disconnect after
+  events have been cached. The current update path only changes the schedule
+  while station Wi-Fi is connected.
+- Decide whether the external Sunrise-Sunset.org dependency should remain or
+  be replaced with local astronomical calculations.
 
-## Ambiguities and wording issues
+## Documentation work still useful
 
-- "An esp based timer for a camera for observing when chickens go to sleep or wake up." is understandable, but could be clearer about the system boundary and user value.
-- "Uses off the shelf board ESP32_MOS_X2_V1.1." assumes the reader already knows the board.
-- "Will switch on power a configurable number of minutes before sun rise and sun set and turn off a configurable number of minutes after rise and set." is the core behavior, but it would benefit from a precise example timeline.
-- The new sunrise/sunset section proposes using an internet API, but it does not yet define refresh frequency, caching rules, timezone handling, or fallback behavior in enough detail to guide implementation.
-- "sun rise" / "sun set" / "wifi" capitalization and spelling are inconsistent. Standardizing to `sunrise`, `sunset`, and `Wi-Fi` would make the document feel more finished.
+- Add concise ESP-IDF setup, build, flash, and serial-monitor instructions to
+  `README.md`.
+- Add a hardware wiring and electrical-limits section, with a verified board
+  source or schematic.
+- State the AP password change procedure and the security limitations of the
+  configuration UI.
+- Add a simple operational timeline showing station connection, AP fallback,
+  NTP synchronisation, event fetch, and MOSFET control.
 
-## Missing documentation
+## Verification status
 
-- No setup instructions for the development environment.
-- No ESP-IDF version requirement.
-- No build instructions.
-- No flash instructions.
-- No serial monitor instructions.
-- No hardware wiring notes.
-- No GPIO pin assignments.
-- No configuration storage approach.
-- The current API parsing accepts the `sunset` and `dusk` Unix timestamp values
-  for today and tomorrow. It waits ten seconds after Wi-Fi connects, retries a
-  first failed fetch after ten seconds, then retries subsequent failures after
-  five minutes; the two-day cache is RAM-only.
-- No explanation of how the device behaves before it has valid time.
-- No explanation of failure modes or fallback behavior.
-- No acceptance criteria for the TODO items.
-
-## Suggested README improvements
-
-- Add a short "Status" section near the top that clearly says this project is in planning / scaffold stage.
-- Add a "Goal" section describing the intended user-facing behavior in one paragraph.
-- Add an "Expected daily behavior" section with a concrete example:
-  - Example: sunrise 06:20, sunset 18:05, turn on 20 minutes before, turn off 10 minutes after.
-- Add a "Hardware" section listing the exact board, module, output method, and connected load.
-- Add a "Software architecture" section covering:
-  - time source,
-  - sunrise/sunset source or algorithm,
-  - Wi-Fi station/AP fallback flow,
-  - settings persistence,
-  - power control logic,
-  - sleep/wake behavior.
-- Add a "Current implementation status" section so readers can see what is planned versus already built.
-- Convert the TODO list into grouped milestones such as `Networking`, `Time`, `Sun events`, `Web UI`, `Persistence`, and `Power management`.
-- Replace vague items with testable statements. Example:
-  - Instead of "Try to log into the existing WiFi."
-  - Use "Attempt station-mode connection using saved SSID/password for up to 60 seconds."
-- Add a section explicitly documenting assumptions and open decisions.
-- Add a short note saying the current README proposes `sunrise-sunset.org` as the initial source, but this is still a design choice rather than implemented behavior.
-
-## Inconsistencies to resolve
-
-- README describes substantial planned behavior, but the codebase currently contains only a blank application entry point.
-- The README now proposes an external sunrise/sunset API, but the repo does not yet contain networking, JSON parsing, time sync, or persistence code to support it.
-
-## Recommended README structure
-
-- Project summary
-- Status
-- Intended behavior
-- Hardware
-- Software design
-- Setup and build
-- Flash and monitor
-- Configuration model
-- Open questions
-- Roadmap
-
-## Potential technical decisions to document later
-
-- Whether sunrise/sunset is obtained from an internet API or calculated locally from lat/long and date.
-- Whether NTP alone is sufficient, or whether RTC hardware is needed for resilience.
-- Whether the AP configuration portal should always be available via button press as a recovery path.
-- How credentials and settings are stored securely in flash/NVS.
-- What safe default output state should be used on boot and on failure.
-
-## Suggested next pass
-
-- Rewrite `README.md` so it clearly separates:
-  - what the project is,
-  - what is already implemented,
-  - what decisions are still open,
-  - what work is planned next.
+- `git diff --check` is used for repository changes.
+- A firmware build should be run for each firmware/CMake change. At the last
+  attempt, `idf.py build` could not start because the ESP-IDF Python virtual
+  environment (`idf6.1_py3.11_env`) is missing from this development machine.

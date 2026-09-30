@@ -7,6 +7,7 @@
 
 #include "esp_err.h"
 #include "esp_http_server.h"
+#include "control_mode.hpp"
 #include "location.hpp"
 #include "sun_settings.hpp"
 #include "sun_schedule.hpp"
@@ -31,19 +32,19 @@ void escaped(httpd_req_t *request, const char *value) {
 }
 
 esp_err_t root(httpd_req_t *request) {
+    wifi_note_activity();
     char utc[32] = {};
     const char *utc_text = time_service_format_utc(utc, sizeof(utc));
     httpd_resp_set_type(request, "text/html");
-    httpd_resp_sendstr_chunk(request, "<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"icon\" href=\"/favicon.ico\"><title>Chicken Clock</title><nav><a href=\"/\">Home</a> | <a href=\"/settings\">Settings</a> | <a href=\"/wifi\">Set Wi-Fi</a> | <span id=\"sun-indicator\">Sun events loading...</span></nav><h1>Chicken Clock</h1><p>Status: ");
-    httpd_resp_sendstr_chunk(request, wifi_connection_state_name());
-    httpd_resp_sendstr_chunk(request, "</p><p id=\"time-line\">--:--</p><script>const utc='");
+    httpd_resp_sendstr_chunk(request, "<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"icon\" href=\"/favicon.ico\"><title>Chicken Clock</title><nav><a href=\"/\">Home</a> | <a href=\"/settings\">Settings</a> | <a href=\"/wifi\">Set Wi-Fi</a> | <span id=\"sun-indicator\">Loading...</span></nav><h1>Chicken Clock</h1><p><button type=\"button\" onclick=\"setMode('timer')\">Timer</button> <button type=\"button\" onclick=\"setMode('on')\">On</button> <button type=\"button\" onclick=\"setMode('off')\">Off</button></p><script>const utc='");
     httpd_resp_sendstr_chunk(request, utc_text);
-    httpd_resp_sendstr_chunk(request, "';const t=document.getElementById('time-line'),z=new Intl.DateTimeFormat(undefined,{timeZoneName:'short'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value||'local',indicator=s=>{if(!s.available)return s.next_event;const h=Math.floor(s.minutes/60),d=h?h+'h '+s.minutes%60+'m':s.minutes+'m';return(s.mosfet1_on?'FET1 ON; ':'FET1 OFF; ')+s.next_event+' in '+d;};if(utc.endsWith('Z'))t.textContent=new Date(utc).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+' ('+z+') ['+utc.replace('T',' ').replace('Z',' UTC')+']';else t.textContent='--:-- ('+z+') [Waiting for NTP synchronization]';fetch('/sun-status').then(r=>r.json()).then(s=>document.getElementById('sun-indicator').textContent=indicator(s));</script>");
+    httpd_resp_sendstr_chunk(request, "';const now=utc.endsWith('Z')?new Date(utc):new Date(),clock=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),indicator=s=>{let text='Mode: '+s.mode+' Time: '+clock+' State: '+(s.mosfet1_on?'ON':'OFF');if(s.mode==='TIMER'){if(!s.available)return text+'; '+s.next_event;const h=Math.floor(s.minutes/60),d=h?h+'h '+s.minutes%60+'min':s.minutes+'min',at=new Date(s.next_event_unix*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});text+='; '+s.next_event+' in '+d+' @ '+at;}return text;},setMode=mode=>fetch('/mode',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'mode='+mode}).then(r=>{if(r.ok)location.reload();});fetch('/sun-status').then(r=>r.json()).then(s=>document.getElementById('sun-indicator').textContent=indicator(s));</script>");
     return httpd_resp_send_chunk(request, nullptr, 0);
 }
 
 esp_err_t settings_get(httpd_req_t *request)
 {
+    wifi_note_activity();
     httpd_resp_set_type(request, "text/html");
     return httpd_resp_sendstr(request,
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
@@ -66,12 +67,13 @@ esp_err_t settings_get(httpd_req_t *request)
         "const rows=document.getElementById('sun-events');function eventTime(value){return value?new Date(value*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'-';}function loadSun(point){const start=new Date(),end=new Date(start);end.setDate(start.getDate()+6);const date=value=>value.toISOString().slice(0,10),url='https://api.sunrise-sunset.org/v2?lat='+point.lat+'&lng='+point.lng+'&date_start='+date(start)+'&date_end='+date(end)+'&time_format=unix',link=document.getElementById('sun-url');link.href=url;link.textContent=url;rows.innerHTML='<tr><td colspan=\"4\">Loading…</td></tr>';fetch(url).then(response=>response.json()).then(data=>{rows.innerHTML='';(data.days||[]).forEach(day=>{const row=document.createElement('tr');row.innerHTML='<td>'+day.date+'</td><td>'+eventTime(day.sunrise)+'</td><td>'+eventTime(day.sunset)+'</td><td>'+eventTime(day.dusk)+'</td>';rows.appendChild(row);});}).catch(()=>rows.innerHTML='<tr><td colspan=\"4\">Could not load sun events.</td></tr>');}"
         "let marker;function choose(point,persist=true){if(!marker){marker=L.marker(point,{draggable:true}).addTo(map);marker.on('dragend',()=>choose(marker.getLatLng()));}else marker.setLatLng(point);recenter.disabled=false;message.textContent='Latitude: '+point.lat.toFixed(6)+'; Longitude: '+point.lng.toFixed(6);loadSun(point);if(persist)fetch('/location',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'latitude='+point.lat+'&longitude='+point.lng}).then(response=>{if(!response.ok)message.textContent+=' (could not save)';}).catch(()=>message.textContent+=' (could not save)');}"
         "recenter.addEventListener('click',()=>{if(marker)map.setView(marker.getLatLng(),13);});"
-        "map.on('click',event=>choose(event.latlng));fetch('/location').then(response=>response.ok?response.json():null).then(saved=>{if(saved){const point={lat:saved.latitude,lng:saved.longitude};map.setView(point,13);choose(point,false);}});fetch('/sun-settings').then(response=>response.ok?response.json():null).then(saved=>{if(saved){document.getElementById('sunset-offset').value=saved.sunset_offset;document.getElementById('dusk-offset').value=saved.dusk_offset;}});document.getElementById('save-offsets').addEventListener('click',()=>{const sunset=document.getElementById('sunset-offset').value,dusk=document.getElementById('dusk-offset').value;fetch('/sun-settings',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'sunset='+sunset+'&dusk='+dusk}).then(response=>document.getElementById('offset-status').textContent=response.ok?'Offsets saved.':'Could not save offsets.');});fetch('/sun-status').then(r=>r.json()).then(s=>{const h=Math.floor(s.minutes/60),d=h?h+'h '+s.minutes%60+'m':s.minutes+'m';document.getElementById('sun-indicator').textContent=s.available?(s.mosfet1_on?'FET1 ON; ':'FET1 OFF; ')+s.next_event+' in '+d:s.next_event;});</script>"
+        "map.on('click',event=>choose(event.latlng));fetch('/location').then(response=>response.ok?response.json():null).then(saved=>{if(saved){const point={lat:saved.latitude,lng:saved.longitude};map.setView(point,13);choose(point,false);}});fetch('/sun-settings').then(response=>response.ok?response.json():null).then(saved=>{if(saved){document.getElementById('sunset-offset').value=saved.sunset_offset;document.getElementById('dusk-offset').value=saved.dusk_offset;}});document.getElementById('save-offsets').addEventListener('click',()=>{const sunset=document.getElementById('sunset-offset').value,dusk=document.getElementById('dusk-offset').value;fetch('/sun-settings',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'sunset='+sunset+'&dusk='+dusk}).then(response=>document.getElementById('offset-status').textContent=response.ok?'Offsets saved.':'Could not save offsets.');});fetch('/sun-status').then(r=>r.json()).then(s=>{const clock=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});let text='Mode: '+s.mode+' Time: '+clock+' State: '+(s.mosfet1_on?'ON':'OFF');if(s.mode==='TIMER'){if(s.available){const h=Math.floor(s.minutes/60),d=h?h+'h '+s.minutes%60+'min':s.minutes+'min',at=new Date(s.next_event_unix*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});text+='; '+s.next_event+' in '+d+' @ '+at;}else text+='; '+s.next_event;}document.getElementById('sun-indicator').textContent=text;});</script>"
         "</body></html>");
 }
 
 esp_err_t location_get(httpd_req_t *request)
 {
+    wifi_note_activity();
     location_t location = {};
     if (!location_load(&location)) return httpd_resp_send_err(request, HTTPD_404_NOT_FOUND, "Location not set");
     char response[80] = {};
@@ -83,6 +85,7 @@ esp_err_t location_get(httpd_req_t *request)
 
 esp_err_t location_post(httpd_req_t *request)
 {
+    wifi_note_activity();
     if (request->content_len == 0 || request->content_len >= 96) {
         return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Invalid location");
     }
@@ -102,6 +105,7 @@ esp_err_t location_post(httpd_req_t *request)
 
 esp_err_t sun_settings_get(httpd_req_t *request)
 {
+    wifi_note_activity();
     sun_settings_t settings = {0, 0};
     sun_settings_load(&settings);
     char response[64] = {};
@@ -113,6 +117,7 @@ esp_err_t sun_settings_get(httpd_req_t *request)
 
 esp_err_t sun_settings_post(httpd_req_t *request)
 {
+    wifi_note_activity();
     if (request->content_len == 0 || request->content_len >= 48) {
         return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Invalid offsets");
     }
@@ -137,14 +142,37 @@ esp_err_t sun_settings_post(httpd_req_t *request)
 
 esp_err_t sun_status_get(httpd_req_t *request)
 {
+    wifi_note_activity();
     const sun_schedule_status_t status = sun_schedule_status();
-    char response[160] = {};
+    char response[224] = {};
     std::snprintf(response, sizeof(response),
-        "{\"available\":%s,\"mosfet1_on\":%s,\"next_event\":\"%s\",\"minutes\":%d}",
-        status.available ? "true" : "false", status.mosfet1_on ? "true" : "false",
-        status.next_event, status.minutes_to_next_event);
+        "{\"mode\":\"%s\",\"available\":%s,\"mosfet1_on\":%s,\"next_event\":\"%s\",\"minutes\":%d,\"next_event_unix\":%lld}",
+        status.mode, status.available ? "true" : "false", status.mosfet1_on ? "true" : "false",
+        status.next_event, status.minutes_to_next_event, status.next_event_unix);
     httpd_resp_set_type(request, "application/json");
     return httpd_resp_sendstr(request, response);
+}
+
+esp_err_t mode_post(httpd_req_t *request)
+{
+    wifi_note_activity();
+    if (request->content_len == 0 || request->content_len >= 16) {
+        return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Invalid mode");
+    }
+    char form[16] = {};
+    size_t received = 0;
+    while (received < request->content_len) {
+        const int read = httpd_req_recv(request, form + received, request->content_len - received);
+        if (read <= 0) return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Could not read mode");
+        received += read;
+    }
+    control_mode_t mode = control_mode_t::kTimer;
+    if (std::strcmp(form, "mode=timer") == 0) mode = control_mode_t::kTimer;
+    else if (std::strcmp(form, "mode=on") == 0) mode = control_mode_t::kOn;
+    else if (std::strcmp(form, "mode=off") == 0) mode = control_mode_t::kOff;
+    else return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Invalid mode");
+    if (!control_mode_save(mode)) return httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR, "Could not save mode");
+    return httpd_resp_send(request, nullptr, 0);
 }
 
 esp_err_t favicon(httpd_req_t *request) {
@@ -175,30 +203,32 @@ bool parse_credentials(char *form, char *ssid, size_t ssid_size, char *password,
 }
 
 esp_err_t wifi_get(httpd_req_t *request) {
+    wifi_note_activity();
     wifi_ap_record_t networks[kMaxNetworks] = {}; uint16_t count = kMaxNetworks;
     if (!wifi_scan(networks, &count)) return httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR, "Wi-Fi scan failed");
     httpd_resp_set_type(request, "text/html");
     httpd_resp_sendstr_chunk(request, "<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"icon\" href=\"/favicon.ico\"><title>Set Wi-Fi</title><nav><a href=\"/\">Home</a> | <a href=\"/settings\">Settings</a> | <a href=\"/wifi\">Set Wi-Fi</a> | <span id=\"sun-indicator\">Sun events loading...</span></nav><h1>Set Wi-Fi</h1><form method=\"post\" action=\"/wifi\"><p><label>Network <select name=\"ssid\" required><option value=\"\">Choose a network</option>");
     for (uint16_t i = 0; i < count; ++i) { httpd_resp_sendstr_chunk(request, "<option value=\""); escaped(request, reinterpret_cast<const char *>(networks[i].ssid)); httpd_resp_sendstr_chunk(request, "\">"); escaped(request, reinterpret_cast<const char *>(networks[i].ssid)); httpd_resp_sendstr_chunk(request, "</option>"); }
-    httpd_resp_sendstr_chunk(request, "</select></label></p><p><label>Passphrase <input name=\"password\" type=\"password\" maxlength=\"63\"></label></p><button type=\"submit\">Save Wi-Fi settings</button></form><script>fetch('/sun-status').then(r=>r.json()).then(s=>{const h=Math.floor(s.minutes/60),d=h?h+'h '+s.minutes%60+'m':s.minutes+'m';document.getElementById('sun-indicator').textContent=s.available?(s.mosfet1_on?'FET1 ON; ':'FET1 OFF; ')+s.next_event+' in '+d:s.next_event;});</script>");
+    httpd_resp_sendstr_chunk(request, "</select></label></p><p><label>Passphrase <input name=\"password\" type=\"password\" maxlength=\"63\"></label></p><button type=\"submit\">Save Wi-Fi settings</button></form><script>fetch('/sun-status').then(r=>r.json()).then(s=>{const clock=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});let text='Mode: '+s.mode+' Time: '+clock+' State: '+(s.mosfet1_on?'ON':'OFF');if(s.mode==='TIMER'){if(s.available){const h=Math.floor(s.minutes/60),d=h?h+'h '+s.minutes%60+'min':s.minutes+'min',at=new Date(s.next_event_unix*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});text+='; '+s.next_event+' in '+d+' @ '+at;}else text+='; '+s.next_event;}document.getElementById('sun-indicator').textContent=text;});</script>");
     return httpd_resp_send_chunk(request, nullptr, 0);
 }
 
 esp_err_t wifi_post(httpd_req_t *request) {
+    wifi_note_activity();
     if (request->content_len == 0 || request->content_len >= kMaxForm) return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Invalid Wi-Fi settings");
     char form[kMaxForm] = {}; size_t received = 0;
     while (received < request->content_len) { const int read = httpd_req_recv(request, form + received, request->content_len - received); if (read <= 0) return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Could not read Wi-Fi settings"); received += read; }
     char ssid[33] = {}, password[65] = {}; form[received] = '\0';
     if (!parse_credentials(form, ssid, sizeof(ssid), password, sizeof(password)) || !ssid[0]) return httpd_resp_send_err(request, HTTPD_400_BAD_REQUEST, "Invalid Wi-Fi settings");
     if (!wifi_save_credentials(ssid, password)) return httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR, "Could not save Wi-Fi settings");
-    return httpd_resp_send(request, "<!doctype html><title>Wi-Fi saved</title><nav><a href=\"/\">Home</a> | <a href=\"/settings\">Settings</a> | <a href=\"/wifi\">Set Wi-Fi</a> | <span id=\"sun-indicator\">Sun events loading...</span></nav><h1>Wi-Fi settings saved</h1><p>Restart the device to connect using the new settings.</p><p><a href=\"/\">Back</a></p><script>fetch('/sun-status').then(r=>r.json()).then(s=>{const h=Math.floor(s.minutes/60),d=h?h+'h '+s.minutes%60+'m':s.minutes+'m';document.getElementById('sun-indicator').textContent=s.available?(s.mosfet1_on?'FET1 ON; ':'FET1 OFF; ')+s.next_event+' in '+d:s.next_event;});</script>", HTTPD_RESP_USE_STRLEN);
+    return httpd_resp_send(request, "<!doctype html><title>Wi-Fi saved</title><nav><a href=\"/\">Home</a> | <a href=\"/settings\">Settings</a> | <a href=\"/wifi\">Set Wi-Fi</a> | <span id=\"sun-indicator\">Sun events loading...</span></nav><h1>Wi-Fi settings saved</h1><p>Restart the device to connect using the new settings.</p><p><a href=\"/\">Back</a></p><script>fetch('/sun-status').then(r=>r.json()).then(s=>{const clock=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});let text='Mode: '+s.mode+' Time: '+clock+' State: '+(s.mosfet1_on?'ON':'OFF');if(s.mode==='TIMER'){if(s.available){const h=Math.floor(s.minutes/60),d=h?h+'h '+s.minutes%60+'min':s.minutes+'min',at=new Date(s.next_event_unix*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});text+='; '+s.next_event+' in '+d+' @ '+at;}else text+='; '+s.next_event;}document.getElementById('sun-indicator').textContent=text;});</script>", HTTPD_RESP_USE_STRLEN);
 }
 }
 
 void web_server_start()
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 12;
+    config.max_uri_handlers = 14;
     httpd_handle_t server = nullptr;
     ESP_ERROR_CHECK(httpd_start(&server, &config));
     httpd_uri_t root_uri = {}; root_uri.uri = "/"; root_uri.method = HTTP_GET; root_uri.handler = root; ESP_ERROR_CHECK(httpd_register_uri_handler(server, &root_uri));
@@ -208,6 +238,7 @@ void web_server_start()
     httpd_uri_t sun_get_uri = {}; sun_get_uri.uri = "/sun-settings"; sun_get_uri.method = HTTP_GET; sun_get_uri.handler = sun_settings_get; ESP_ERROR_CHECK(httpd_register_uri_handler(server, &sun_get_uri));
     httpd_uri_t sun_post_uri = {}; sun_post_uri.uri = "/sun-settings"; sun_post_uri.method = HTTP_POST; sun_post_uri.handler = sun_settings_post; ESP_ERROR_CHECK(httpd_register_uri_handler(server, &sun_post_uri));
     httpd_uri_t sun_status_uri = {}; sun_status_uri.uri = "/sun-status"; sun_status_uri.method = HTTP_GET; sun_status_uri.handler = sun_status_get; ESP_ERROR_CHECK(httpd_register_uri_handler(server, &sun_status_uri));
+    httpd_uri_t mode_uri = {}; mode_uri.uri = "/mode"; mode_uri.method = HTTP_POST; mode_uri.handler = mode_post; ESP_ERROR_CHECK(httpd_register_uri_handler(server, &mode_uri));
     httpd_uri_t icon_uri = {}; icon_uri.uri = "/favicon.ico"; icon_uri.method = HTTP_GET; icon_uri.handler = favicon; ESP_ERROR_CHECK(httpd_register_uri_handler(server, &icon_uri));
     httpd_uri_t get_uri = {}; get_uri.uri = "/wifi"; get_uri.method = HTTP_GET; get_uri.handler = wifi_get; ESP_ERROR_CHECK(httpd_register_uri_handler(server, &get_uri));
     httpd_uri_t post_uri = {}; post_uri.uri = "/wifi"; post_uri.method = HTTP_POST; post_uri.handler = wifi_post; ESP_ERROR_CHECK(httpd_register_uri_handler(server, &post_uri));

@@ -16,6 +16,8 @@
   "idf.flashType": "UART",
   "idf.port": "COM16",
   "cSpell.words": [
-    "MOSFET"
+    "fullclean",
+    "MOSFET",
+    "sdkconfig"
   ]
 }

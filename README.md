@@ -4,7 +4,7 @@
 
 Chickens go to roost as the light fades and want to be let out as the sun rises. However they are not like clockwork, so a camera is used to observe them. However to solar charged batter has limited life so a ESP32_MOS_X2_V1.1 board is used to switch power to the camera on and off at the right time.
 
-## Requirements
+## Function
 
 Switch on the camera a configurable number of minutes before sun set.
 
@@ -35,20 +35,28 @@ preference; it does not affect the switching window.
 
 ## TODO
 
-* [ ] Add web site. This does not need to be secure.
-* [ ] Web site includes configuration for an existing WiFi id/password.
-* [ ] Try to log into the existing WiFi.
-* [ ] If after 60 seconds unable connect to existing wifi, become an AP.
-* [ ] After 1 min of no AP activity, try to connect to existing wifi again.
-* [ ] AP configuration is fixed. A fixed password is used to access the WiFi securely.
+### Remaining
+
+* [ ] Add an override button to home page to switch between on/off/timer mode.
 * [ ] The AP provides the "capture" feature to redirect android/iphone and windows devices to the web site.
 * [ ] Add button to web site to obtain time/date from browser.
-* [ ] Have hard wired list of network time servers. Does not need to be user configurable.
-* [ ] When connected to existing WiFi contact network time servers for the time.
-* [ ] Add to README.md a strategy for obtaining sun set/sun rise from internet.
-* [ ] Add to web site the ability to set the location (coordinates) for sun set and sun rise.
-* [ ] Store setting even if power is lost.
 * [ ] In website have ability to configure the four setting of minutes before/after rise/set.
 * [ ] Enter a low power mode when the timer can be off. Sleep for 5minutes, wake and then go to sleep again.
-* [ ] When the time is less than the prescribed number of minutes before the rise/set turn on. Turn off the prescribed number of minutes after the rise/set.
-* [ ] The timing is related to sun rise/set only. There is no requirement to show day light saving. However, browser time, network time and the timings of rise and set must be managed for this to be correct. Eliminating day light saving from the logic would be easiest, if possible.
+* [ ] Add a configurable sunrise window as well as the implemented sunset-to-dusk window.
+* [ ] Add NVS-backed cache of sun events to survive power loss, network outage, or NTP failure.
+
+### Completed
+
+* [x] Add web site. This does not need to be secure.
+* [x] Web site includes configuration for an existing Wi-Fi SSID/password.
+* [x] Try to log into the existing Wi-Fi.
+* [x] If unable to connect to existing Wi-Fi after 10 seconds, become an AP.
+* [x] After one minute without setup-AP activity, retry saved Wi-Fi credentials.
+* [x] AP configuration is fixed and protected with a fixed password.
+* [x] Have a hard-wired, non-configurable list of network time servers.
+* [x] When connected to existing Wi-Fi, contact network time servers for the time.
+* [x] Document a strategy for obtaining sunrise/sunset from the internet.
+* [x] Add a web page to set location coordinates for sun events.
+* [x] Store Wi-Fi credentials, location, and offsets across power loss using NVS.
+* [x] Turn MOSFET 1 on at sunset plus its offset and off at dusk plus its offset.
+* [x] Keep scheduling in UTC so browser time zones and daylight saving do not affect switching.

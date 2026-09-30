@@ -10,6 +10,7 @@
 #include "esp_http_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "control_mode.hpp"
 #include "led.hpp"
 #include "location.hpp"
 #include "sun_settings.hpp"
@@ -105,6 +106,17 @@ bool time_to_fetch(TickType_t ticks)
 
 void sun_schedule_update()
 {
+    control_mode_t mode = control_mode_t::kTimer;
+    control_mode_load(&mode);
+    if (mode == control_mode_t::kOn) {
+        led_set_mosfet1(true);
+        return;
+    }
+    if (mode == control_mode_t::kOff) {
+        led_set_mosfet1(false);
+        return;
+    }
+
     const TickType_t ticks = xTaskGetTickCount();
     if (wifi_connection_state() != connection_state_t::kConnected) {
         s_connected_since = 0;
@@ -142,18 +154,23 @@ void sun_schedule_update()
 
 sun_schedule_status_t sun_schedule_status()
 {
+    control_mode_t mode = control_mode_t::kTimer;
+    control_mode_load(&mode);
+    if (mode == control_mode_t::kOn) return {control_mode_name(mode), true, true, "", 0, 0};
+    if (mode == control_mode_t::kOff) return {control_mode_name(mode), true, false, "", 0, 0};
+
     sun_settings_t settings = {0, 0};
     sun_settings_load(&settings);
     const time_t now = std::time(nullptr);
     const time_t sunset = s_today.sunset + settings.sunset_offset_minutes * 60;
     const time_t dusk = s_today.dusk + settings.dusk_offset_minutes * 60;
     const time_t tomorrow_sunset = s_tomorrow.sunset + settings.sunset_offset_minutes * 60;
-    if (wifi_connection_state() != connection_state_t::kConnected) return {false, false, "Waiting for Wi-Fi", 0};
-    if (now < kValidTimeEpoch) return {false, false, "Waiting for NTP", 0};
+    if (wifi_connection_state() != connection_state_t::kConnected) return {control_mode_name(mode), false, false, "Waiting for Wi-Fi", 0, 0};
+    if (now < kValidTimeEpoch) return {control_mode_name(mode), false, false, "Waiting for NTP", 0, 0};
     location_t location = {};
-    if (!location_load(&location)) return {false, false, "Set a location", 0};
-    if (s_today.sunset == 0 || s_tomorrow.sunset == 0) return {false, false, s_fetch_failed ? "Sun data retrying" : "Loading sun data", 0};
-    if (now < sunset) return {true, false, "on", static_cast<int>((sunset - now + 30) / 60)};
-    if (now < dusk) return {true, true, "off", static_cast<int>((dusk - now + 30) / 60)};
-    return {true, false, "on", static_cast<int>((tomorrow_sunset - now + 30) / 60)};
+    if (!location_load(&location)) return {control_mode_name(mode), false, false, "Set a location", 0, 0};
+    if (s_today.sunset == 0 || s_tomorrow.sunset == 0) return {control_mode_name(mode), false, false, s_fetch_failed ? "Sun data retrying" : "Loading sun data", 0, 0};
+    if (now < sunset) return {control_mode_name(mode), true, false, "on", static_cast<int>((sunset - now + 30) / 60), static_cast<long long>(sunset)};
+    if (now < dusk) return {control_mode_name(mode), true, true, "off", static_cast<int>((dusk - now + 30) / 60), static_cast<long long>(dusk)};
+    return {control_mode_name(mode), true, false, "on", static_cast<int>((tomorrow_sunset - now + 30) / 60), static_cast<long long>(tomorrow_sunset)};
 }

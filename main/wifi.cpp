@@ -21,8 +21,10 @@ constexpr char kNvsNamespace[] = "wifi";
 constexpr char kSsidKey[] = "ssid";
 constexpr char kPasswordKey[] = "password";
 constexpr uint32_t kConnectionTimeoutMs = 10'000;
+constexpr uint32_t kApRetryDelayMs = 60'000;
 connection_state_t s_state = connection_state_t::kAccessPoint;
 TickType_t s_station_start = 0;
+TickType_t s_last_ap_activity = 0;
 
 struct credentials_t { char ssid[33] = {}; char password[65] = {}; };
 
@@ -49,6 +51,7 @@ bool load_credentials(credentials_t *credentials) {
 
 void start_access_point() {
     s_state = connection_state_t::kAccessPoint;
+    s_last_ap_activity = xTaskGetTickCount();
     const esp_err_t stop_result = esp_wifi_stop();
     if (stop_result != ESP_OK && stop_result != ESP_ERR_WIFI_NOT_STARTED) ESP_ERROR_CHECK(stop_result);
     wifi_config_t config = {};
@@ -70,6 +73,8 @@ void start_station(const credentials_t &credentials) {
     config.sta.threshold.authmode = credentials.password[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
     s_state = connection_state_t::kConnecting;
     s_station_start = xTaskGetTickCount();
+    const esp_err_t stop_result = esp_wifi_stop();
+    if (stop_result != ESP_OK && stop_result != ESP_ERR_WIFI_NOT_STARTED) ESP_ERROR_CHECK(stop_result);
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &config));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -77,6 +82,8 @@ void start_station(const credentials_t &credentials) {
 }
 
 void event_handler(void *, esp_event_base_t base, int32_t id, void *) {
+    if (base == WIFI_EVENT && (id == WIFI_EVENT_AP_STACONNECTED || id == WIFI_EVENT_AP_STADISCONNECTED))
+        wifi_note_activity();
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED && s_state == connection_state_t::kConnecting)
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_connect());
     if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) { s_state = connection_state_t::kConnected; time_service_start(); }
@@ -115,6 +122,17 @@ void wifi_update()
 {
     if (s_state == connection_state_t::kConnecting &&
         xTaskGetTickCount() - s_station_start >= pdMS_TO_TICKS(kConnectionTimeoutMs)) start_access_point();
+    if (s_state == connection_state_t::kAccessPoint &&
+        xTaskGetTickCount() - s_last_ap_activity >= pdMS_TO_TICKS(kApRetryDelayMs)) {
+        credentials_t credentials;
+        if (load_credentials(&credentials)) start_station(credentials);
+        else s_last_ap_activity = xTaskGetTickCount();
+    }
+}
+
+void wifi_note_activity()
+{
+    if (s_state == connection_state_t::kAccessPoint) s_last_ap_activity = xTaskGetTickCount();
 }
 
 connection_state_t wifi_connection_state() { return s_state; }
